@@ -2,7 +2,6 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import torch.nn as nn
 import matplotlib.pyplot as plt
 
 class SparseNeuralNetwork(nn.Module):
@@ -41,7 +40,6 @@ class SparseNeuralNetwork(nn.Module):
         hidden = self.univariate_nn(x)
         output = self.fc2(hidden)
         return output
-
 
 class Neural_Kan(nn.Module):
     def __init__(self, shape, h):
@@ -91,7 +89,7 @@ if __name__ == "__main__":
         return torch.sin(torch.sum(X, dim=1, keepdim=True))
     dataloader = model.get_dataloader(f)
     print(dataloader)
-    model.fit(dataloader = dataloader, epochs=1000, lr=0.001)
+    model.fit(dataloader = dataloader, epochs=200, lr=0.001)
         
 
             
