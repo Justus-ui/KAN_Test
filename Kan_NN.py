@@ -125,17 +125,18 @@ if __name__ == "__main__":
         return torch.reshape(result, [result.shape[0], 1])
     def f(X):
         return torch.sum(X, dim=1, keepdim=True)
-    in_dim = 10
+    in_dim = 2
     model = Neural_Kan(shape = [in_dim,1], h = [16])
     dataloader = model.get_dataloader(f, in_dim=in_dim, num_samples=2000, batch_size=32)
     dataloader_test = model.get_dataloader(f, in_dim=in_dim, num_samples=200, batch_size=20)
     print("dataloader",len(dataloader_test),len(dataloader))
-    model.fit(dataloader = dataloader,dataloader_test = dataloader_test, epochs=10, lr=1e-3)
-    valid = torch.rand(200, in_dim)
+    model.fit(dataloader = dataloader,dataloader_test = dataloader_test, epochs=200, lr=1e-3)
+    valid = torch.rand(10, in_dim)
     test = model(valid)
     print(test.shape, "test")
     print(torch.sum(valid, dim = 1).shape)
     print((test.flatten() - torch.sum(valid, dim = 1)))
+    print(test, valid)
     #print((test - torch.sum(valid, dim = 0)).shape)
     #model = Neural_Kan(shape = [2,1,1], h = [8,32,8])
     #def f(X):
