@@ -103,7 +103,7 @@ class Neural_Kan(nn.Module):
         # Return the parameter groups with different weight decays
         optimizer_params = [
             {'params': params_with_decay, 'weight_decay': weight_decay},
-            {'params': params_without_decay, 'weight_decay': 1e-5}  # No decay for BatchNorm1d layers
+            {'params': params_without_decay, 'weight_decay': weight_decay}  # No decay for BatchNorm1d layers
         ]
 
         return optimizer_params
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     dataloader_test = model.get_dataloader(f, in_dim=in_dim, num_samples=200, batch_size=20)
     print("dataloader",len(dataloader_test),len(dataloader))
     h = [32,64,32]
-    widths = [[64],[128]]#,[1024]]#, [2048], [4096]]
+    widths = [[64]]#,[128]]#,[1024]]#, [2048], [4096]]
     #widths = [[4,8],[2,4]]
     decays = [0.1, 1e-2, 1e-5,0]
     epics = 200
