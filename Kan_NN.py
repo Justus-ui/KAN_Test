@@ -2,7 +2,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
+import numpy as np
 
 class SparseNeuralNetwork(nn.Module):
     def __init__(self, in_dim, out_dim, h = [8,4]):
@@ -11,9 +11,10 @@ class SparseNeuralNetwork(nn.Module):
         self.univariate_nn = nn.Sequential()
         layers = []
         self.masks = []
+        self.num_funcs = 2
         for layer in range(1,len(h)):
             layers.append(nn.Linear(h[layer -1] * in_dim, h[layer] * in_dim))
-            layers.append(nn.BatchNorm1d(h[layer] * in_dim))
+            #layers.append(nn.BatchNorm1d(h[layer] * in_dim, affine=True))
             layers.append(nn.ReLU())
             self.masks.append(self.hidden_sparistiy_masks(h[layer] * in_dim, h[layer -1] * in_dim, h[layer - 1],h[layer]))
         self.univariate_nn = nn.Sequential(*layers)
@@ -23,13 +24,13 @@ class SparseNeuralNetwork(nn.Module):
 
     def multiply_weight_masks(self):
         with torch.no_grad():
-            for i in range(0,len(self.univariate_nn),3):
-                self.univariate_nn[i].weight.mul_(self.masks[i // 3])
+            for i in range(0,len(self.univariate_nn),self.num_funcs):
+                self.univariate_nn[i].weight.mul_(self.masks[i // self.num_funcs])
 
     def multiply_grad_masks(self):
         with torch.no_grad():
-            for i in range(0,len(self.univariate_nn),3):
-                self.univariate_nn[i].weight.grad.mul_(self.masks[i // 3])
+            for i in range(0,len(self.univariate_nn),self.num_funcs):
+                self.univariate_nn[i].weight.grad.mul_(self.masks[i // self.num_funcs])
 
     def hidden_sparistiy_masks(self, out_dim, in_dim, input_neurons, output_neurons):
         mask = torch.zeros(out_dim, in_dim)
@@ -69,13 +70,14 @@ class Neural_Kan(nn.Module):
                 total_loss += loss.item()
         return total_loss
 
-    def fit(self,dataloader, dataloader_test, epochs=100, lr=0.001):
+    def fit(self,dataloader, dataloader_test, epochs=100, lr=0.001, weight_decay = 1e-3):
         print("new version")
-        optimizer = optim.RAdam(self.parameters(), lr=lr, weight_decay=1e-3)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs // 10)
-       # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10,min_lr  = 1e-5)
+        optimizer = optim.RAdam(self.parameters(), lr=lr, weight_decay=weight_decay)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 50)
+        #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10,min_lr  = 1e-5)
         criterion = nn.MSELoss(reduction = 'mean')
         self.loss_list = []
+        avg_test_loss_list = []
         for epoch in range(epochs):
             self.train()
             total_loss = 0.0
@@ -89,15 +91,18 @@ class Neural_Kan(nn.Module):
                     models.multiply_grad_masks()
                 optimizer.step() 
             test_loss = self.test_loss(dataloader_test)
-            scheduler.step()
+            #scheduler.step()
             #scheduler.step(test_loss)
             #print()
             avg_testloss = test_loss / len(dataloader_test)
+            avg_test_loss_list.append(avg_testloss)
             self.loss_list.append(total_loss)
             avg_loss = total_loss / len(dataloader)
-            print(f"Lr:{scheduler.get_last_lr()} Epoch [{epoch + 1}/{epochs}], Loss: {avg_loss:.7f},Test_Loss: {avg_testloss:.7f}")
-        plt.plot(self.loss_list)
-        plt.show()
+            #Lr:{scheduler.get_last_lr()}
+            print(f" Epoch [{epoch + 1}/{epochs}], Loss: {avg_loss:.7f},Test_Loss: {avg_testloss:.7f}")
+        #plt.plot(self.loss_list)
+        #plt.show()
+        return avg_test_loss_list
 
     def get_dataloader(self,f,num_samples=1000, in_dim=2, out_dim=1, batch_size = 32):
         X = torch.rand(num_samples, in_dim) 
@@ -123,20 +128,40 @@ if __name__ == "__main__":
         term4= torch.sum(x**0.3, dim = 1)
         result = (torch.abs((torch.sin(2 * torch.pi * (term1 ** .5)) + torch.cos(20 * torch.pi * (term2 ** .4))))**omega + torch.abs((term3**.67 + term4**0.1)))
         return torch.reshape(result, [result.shape[0], 1])
-    def f(X):
-        return torch.sum(X, dim=1, keepdim=True)
-    in_dim = 2
-    model = Neural_Kan(shape = [in_dim,1], h = [16])
-    dataloader = model.get_dataloader(f, in_dim=in_dim, num_samples=2000, batch_size=32)
+    #def f(X):
+    #    return torch.sum(X, dim=1, keepdim=True)
+    in_dim = 10
+    model = Neural_Kan(shape = [in_dim,4,2,1], h = [64])
+    dataloader = model.get_dataloader(f, in_dim=in_dim, num_samples=1000, batch_size=32)
     dataloader_test = model.get_dataloader(f, in_dim=in_dim, num_samples=200, batch_size=20)
     print("dataloader",len(dataloader_test),len(dataloader))
-    model.fit(dataloader = dataloader,dataloader_test = dataloader_test, epochs=200, lr=1e-3)
-    valid = torch.rand(10, in_dim)
-    test = model(valid)
-    print(test.shape, "test")
-    print(torch.sum(valid, dim = 1).shape)
-    print((test.flatten() - torch.sum(valid, dim = 1)))
-    print(test, valid)
+    h = [32,64,32]
+    widths = [[64],[128],[1024], [2048], [4096]]
+    #widths = [[4,8],[2,4]]
+    decays = [0.1, 1e-2, 1e-5,0]
+    epics = 200
+    for h in widths:#, [64], [128], [1024]]:#, [8,16,8], [16,32,16], [32,64,32], [64,128,64]]:
+        plt.figure()
+        Losses = np.zeros((len(decays), epics))
+        for i,decay in enumerate(decays):
+            model = Neural_Kan(shape = [in_dim,4,2,1], h = h)
+            loss = model.fit(dataloader = dataloader,dataloader_test = dataloader_test, epochs=epics, lr=1e-3, weight_decay= decay)
+            Losses[i,:] = loss
+            plt.plot(loss, label = f"{decay}")
+        np.save(f'no_batch_norm/{decays}_{h}', Losses)
+        plt.title(f"Effect of L2 Reg. on testloss (uni. NNs {h}, 10 Inputs)")
+        plt.yscale('log')
+        plt.ylabel("Test Loss: Root Mean Squared Error (RMSE)")
+        plt.xlabel("epoch")
+        plt.legend()
+        plt.show(block=False)
+    plt.show()
+    #valid = torch.rand(10, in_dim)
+    #test = model(valid)
+    #print(test.shape, "test")
+    #print(torch.sum(valid, dim = 1).shape)
+    #print(torch.sum((test.flatten() - torch.sum(valid, dim = 1))**2) / 10)
+    #print(test, valid)
     #print((test - torch.sum(valid, dim = 0)).shape)
     #model = Neural_Kan(shape = [2,1,1], h = [8,32,8])
     #def f(X):
