@@ -11,10 +11,10 @@ class SparseNeuralNetwork(nn.Module):
         self.univariate_nn = nn.Sequential()
         layers = []
         self.masks = []
-        self.num_funcs = 2
+        self.num_funcs = 3
         for layer in range(1,len(h)):
             layers.append(nn.Linear(h[layer -1] * in_dim, h[layer] * in_dim))
-            #layers.append(nn.BatchNorm1d(h[layer] * in_dim, affine=True))
+            layers.append(nn.BatchNorm1d(h[layer] * in_dim, affine=True))
             layers.append(nn.ReLU())
             self.masks.append(self.hidden_sparistiy_masks(h[layer] * in_dim, h[layer -1] * in_dim, h[layer - 1],h[layer]))
         self.univariate_nn = nn.Sequential(*layers)
@@ -69,10 +69,48 @@ class Neural_Kan(nn.Module):
                 loss = criterion(outputs, targets)
                 total_loss += loss.item()
         return total_loss
+    
+    def get_optimizer_params(self, weight_decay=1e-4):
+        """
+        Given a model (nn.Sequential or nested nn.Sequential), apply weight decay
+        to non-BatchNorm1d layers, and avoid applying weight decay to BatchNorm1d layers.
+
+        Arguments:
+        - model: The nn.Module (possibly containing nn.Sequential, including nested Sequential).
+        - weight_decay: The weight decay value for non-BatchNorm1d layers.
+
+        Returns:
+        - optimizer_params: List of dictionaries with 'params' and 'weight_decay'.
+        """
+        params_with_decay = []
+        params_without_decay = []
+
+        # First, we iterate through all layers in the sequential model
+        for module in self.children():
+            if isinstance(module, nn.Sequential):
+                # If the module is an nn.Sequential, we iterate through its submodules
+                for submodule in module.children():
+                    if isinstance(submodule, nn.Module):
+                        # No weight decay for BatchNorm1d layers
+                        for name,param in submodule.named_parameters():
+                            if "univariate_nn.1" in name:
+                                params_without_decay.append(param)
+                                print(name, "no decay")
+                            else:
+                                params_with_decay.append(param)
+                                print(name, "decay")
+
+        # Return the parameter groups with different weight decays
+        optimizer_params = [
+            {'params': params_with_decay, 'weight_decay': weight_decay},
+            {'params': params_without_decay, 'weight_decay': 1e-5}  # No decay for BatchNorm1d layers
+        ]
+
+        return optimizer_params
 
     def fit(self,dataloader, dataloader_test, epochs=100, lr=0.001, weight_decay = 1e-3):
         print("new version")
-        optimizer = optim.RAdam(self.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = optim.RAdam(self.get_optimizer_params(weight_decay), lr=lr)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 50)
         #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10,min_lr  = 1e-5)
         criterion = nn.MSELoss(reduction = 'mean')
@@ -130,13 +168,14 @@ if __name__ == "__main__":
         return torch.reshape(result, [result.shape[0], 1])
     #def f(X):
     #    return torch.sum(X, dim=1, keepdim=True)
+
     in_dim = 10
     model = Neural_Kan(shape = [in_dim,4,2,1], h = [64])
     dataloader = model.get_dataloader(f, in_dim=in_dim, num_samples=1000, batch_size=32)
     dataloader_test = model.get_dataloader(f, in_dim=in_dim, num_samples=200, batch_size=20)
     print("dataloader",len(dataloader_test),len(dataloader))
     h = [32,64,32]
-    widths = [[64],[128],[1024], [2048], [4096]]
+    widths = [[64],[128]]#,[1024]]#, [2048], [4096]]
     #widths = [[4,8],[2,4]]
     decays = [0.1, 1e-2, 1e-5,0]
     epics = 200
@@ -148,7 +187,7 @@ if __name__ == "__main__":
             loss = model.fit(dataloader = dataloader,dataloader_test = dataloader_test, epochs=epics, lr=1e-3, weight_decay= decay)
             Losses[i,:] = loss
             plt.plot(loss, label = f"{decay}")
-        np.save(f'no_batch_norm/{decays}_{h}', Losses)
+        np.save(f'batch_norm/{decays}_{h}', Losses)
         plt.title(f"Effect of L2 Reg. on testloss (uni. NNs {h}, 10 Inputs)")
         plt.yscale('log')
         plt.ylabel("Test Loss: Root Mean Squared Error (RMSE)")
